@@ -1,0 +1,26 @@
+Instructions can be found here: https://leewtai.github.io/courses/data_mining/homeworks/proj0.html
+
+Project 1: Choose your own adventure
+Here are a list of possible projects to try out:
+
+Predicting churn in the NYC civil servants. Replacing people is costly and atypical departures could signal issues in management.
+Using the payroll from different years, we can infer who has left the NYC payroll.
+Does the budget help us predict this?
+Does the census help us predict this?
+
+Tariffs are coming. Predicting import/export alternatives for different products or different countries can be useful.
+The monthly changes in import/exports can be found here
+
+Housing prices is a major concern for young people.
+Does the census contains information on spending on housing over the years
+Social vulnerability talks about how different neighborhoods face different risk factors.
+
+Data mining on menus. NY Public Library has a What’s on the menu? Project and its data, digitized versions of the menus, is posted here
+Do we see the different cuisines/cultures from simply parsing menus?
+Can we predict changes in menus?
+Can we predict population changes from the menus? (This might require some old demographic data that’s beyond the American Community Survey)
+
+Mining geospatial datasets listed here
+E.g. predicting forest loss or its impact, e.g. CO2 maps from Planet Lab (application required!)
+
+You can make this a trial run for your final project as well.
