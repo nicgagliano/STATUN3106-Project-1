@@ -7,3 +7,6 @@ Instructions: Project 1 Instructions from class GitHub
 
 Project1.dox: Current status of Final Project Written Report
 
+Project1.pdf: The R Markdown pdf print out.
+
+Project1.Rmd: R Markdown code for the Project 1.
