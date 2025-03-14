@@ -1,0 +1,198 @@
+---
+title: "Project 1"
+author: "Nic Gagliano"
+date: "2025-02-25"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Here is the GitHub Link: 
+
+https://github.com/nicgagliano/STATUN3106-Project-1
+
+The following is the code regardless if I did not setup the GitHub properly. GitHub Page includes the proper write up and other materials required for a final project.
+
+```{r, fig.align='center'}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(patchwork)
+library(tidymodels)
+library(caret)
+library(rjson)
+library(jsonlite)
+library(glmnet)
+library(e1071)
+library(stringr)
+library(lubridate)
+```
+
+## Project 1: Choose your own adventure
+
+```{r, fig.align='center'}
+TVC <- read.csv("Traffic_Volume_Counts.csv")
+names(TVC)
+dim(TVC)
+head(TVC)
+```
+
+After reading in the dataset we make adjustments to the data columns and rows. I changed the name of some columns, specifically I mapped all of the time columns to be just the hour it pertains to, to use more effectively later. I changed the formatting of multiple columns as well for simplicity's sake. I also removed multiple columns that do not have much affect in the work we plan to do, such as "To", "From", and "Direction".
+
+```{r}
+TVC <- read.csv("Traffic_Volume_Counts.csv")
+
+TVC <- TVC %>%
+  rename(Road = Roadway.Name)
+TVC$Date <- as.Date(TVC$Date, format="%m/%d/%Y")
+
+time_map <- c(
+  "X12.00.1.00.AM" = "12AM", "X1.00.2.00AM" = "1AM", "X2.00.3.00AM" = "2AM",
+  "X3.00.4.00AM" = "3AM", "X4.00.5.00AM" = "4AM", "X5.00.6.00AM" = "5AM",
+  "X6.00.7.00AM" = "6AM", "X7.00.8.00AM" = "7AM", "X8.00.9.00AM" = "8AM",
+  "X9.00.10.00AM" = "9AM", "X10.00.11.00AM" = "10AM", "X11.00.12.00PM" = "11AM",
+  "X12.00.1.00PM" = "12PM", "X1.00.2.00PM" = "1PM", "X2.00.3.00PM" = "2PM",
+  "X3.00.4.00PM" = "3PM", "X4.00.5.00PM" = "4PM", "X5.00.6.00PM" = "5PM",
+  "X6.00.7.00PM" = "6PM", "X7.00.8.00PM" = "7PM", "X8.00.9.00PM" = "8PM",
+  "X9.00.10.00PM" = "9PM", "X10.00.11.00PM" = "10PM", "X11.00.12.00AM" = "11PM"
+)
+names(TVC) <- recode(names(TVC), !!!time_map)
+
+TVC <- TVC %>%
+  mutate(across(8:31, ~replace(as.integer(.), is.na(.), 0))) 
+TVC[8:31] <- lapply(TVC[8:31], as.integer)
+TVC <- TVC %>%
+  select(-From, -To, -Direction)
+
+names(TVC)
+head(TVC)
+```
+
+###Different Strategies
+
+#### Strategy 1: Grouping by month
+
+I wanted to see if it would be more effective to look at the roads if they were analyzed by month and year rather than each individual date. This would avoid almost every NA value present, which is not exactly ideal, but we can evaluate fluctuations by the scaled differences instead of 0's.
+
+```{r}
+TVC_grouped <- TVC
+TVC_grouped$YearMonth <- format(TVC_grouped$Date, "%Y-%m")
+
+TVC_grouped <- TVC_grouped %>%
+  select(-ID, -Road) %>%
+  group_by(SegmentID, YearMonth) %>%
+  summarise(across(`12AM`:`11PM`, \(x) sum(x, na.rm = TRUE))) %>%
+  arrange(SegmentID)
+
+TVC_grouped
+```
+
+```{r}
+scaled_data <- scale(TVC_grouped[, (ncol(TVC_grouped) - 23):ncol(TVC_grouped)])
+
+pca_result <- prcomp(scaled_data, center = TRUE, scale. = TRUE)
+
+eigen_val <- pca_result$sdev^2 
+plot(cumsum(eigen_val) / sum(eigen_val))
+abline(h=.9)
+```
+
+```{r}
+plot(pca_result$x[,1], pca_result$x[,2])
+
+pca_result <- prcomp(t(scaled_data), center = TRUE, scale. = TRUE)
+pca.data <- data.frame(Sample = rownames(pca_result$x), X = pca_result$x[,1], Y = pca_result$x[,2])
+
+ggplot(data = pca.data, aes(x = X, y = Y, label = Sample)) +
+  geom_text() +
+  xlab(paste("PC1")) +
+  ylab(paste("PC2"))
+```
+
+Now this graph, and every other graph preceding this, does not do what I want it to do. This is comparing times to other times rather than roads. Obviously rush hour is so compactly together while slowly moving away is every hour preceding it. I want this to be showing roads. There are a lot of unique road segments however. Making this visually work would be extremely difficult.
+
+#### Strategy 2: Filtering to Zero Dates
+
+What I mean by this strategy title is this set of practice is finding all data that a majority are 0's in the row. Then, grabbing the dates of those and filtering the original dataset to only include those dates. This does get us closer to our goal in terms of showing relations between closed roads and other non-zero roads on the same day. However again, this is still showing the relationship of time instead of road.
+
+```{r}
+traffic_columns <- names(TVC)[(ncol(TVC) - 23):ncol(TVC)]
+
+TVC_clean <- TVC
+TVC_clean$zero_count <- rowSums(TVC_clean[traffic_columns] == 0)
+
+threshold <- 0.75 * length(traffic_columns)
+rows_with_zeros <- TVC_clean %>%
+  filter(zero_count > threshold)
+
+dates_with_zeros <- rows_with_zeros$Date
+
+TVC_zeros_dates <- TVC_clean %>%
+  filter(Date %in% dates_with_zeros)
+
+TVC_zeros_dates <- TVC_zeros_dates %>%
+  mutate(Closed_Road = ifelse(zero_count > threshold, 1, 0)) %>%
+  select(ID, SegmentID, Road, Date, Closed_Road, everything())
+
+closed_roads_data <- TVC_zeros_dates %>% filter(Closed_Road == 1)
+merged_data <- TVC %>%
+  filter(Date %in% closed_roads_data$Date)
+traffic_data <- merged_data[(ncol(TVC) - 23):ncol(TVC)]
+traffic_matrix <- as.matrix(traffic_data)
+rownames(traffic_matrix) <- merged_data$ID
+
+traffic_matrix_clean_rows <- traffic_matrix[apply(traffic_matrix, 1, function(row) sum(row != 0) > 0), ]
+traffic_matrix_clean <- traffic_matrix_clean_rows[, apply(traffic_matrix_clean_rows, 2, function(col) sum(col != 0) > 0)]
+
+pca_result <- prcomp(t(traffic_matrix_clean), scale. = TRUE)
+summary(pca_result)
+eigen_val <- pca_result$sdev^2 
+plot(cumsum(eigen_val) / sum(eigen_val))
+abline(h=.9)
+```
+
+#### Strategy 3: Simple Correlation Matrix
+
+I wanted to see what the basic correlation matrix of this data would look like. Again this is still between times instead of roads, but we can see this definitely would not work out to show per road, as it is already a massive matrix for just the time 24 time slots.
+
+```{r}
+scaled_data <- scale(TVC[, (ncol(TVC) - 23):ncol(TVC)])
+
+closed_roads <- rowSums(TVC[, (ncol(TVC) - 23):ncol(TVC)] == 0) > 0
+
+cor_matrix <- cor(cbind(scaled_data, closed_roads))
+cor_matrix
+```
+
+#### Strategy 4: Transpose Graph
+
+I tried getting the transpose of the matrix to work, since that would in theory, switch from analyzing the times from each other to the roads, the graph however is still printing out only the times against one another. 
+
+```{r}
+pca_result <- prcomp(t(scaled_data), center = TRUE, scale. = TRUE)
+pca.data <- data.frame(Sample = rownames(pca_result$x), X = pca_result$x[,1], Y = pca_result$x[,2])
+
+ggplot(data = pca.data, aes(x = X, y = Y, label = Sample)) +
+  geom_text() +
+  xlab(paste("PC1")) +
+  ylab(paste("PC2"))
+```
+
+
+#### Strategy 5: Lasso and Ridge (EXTRA)
+
+This idea is straight from ChatGPT, I wish for it not to be considered when reviewing Project 1. I just wanted to include the code from what I gathered. It is something I would like to see if I can make it work for the roads insetad of times, or if you find the graphs and what they are showing interesting or unique. But again, not to be considered with the rest of the work done to start the final project.
+
+```{r}
+closed_roads <- rowSums(TVC[, (ncol(TVC) - 23):ncol(TVC)] == 0) > 0
+model_data <- cbind(TVC[, (ncol(TVC) - 23):ncol(TVC)], closed_roads)
+colnames(model_data) <- c(names(TVC)[(ncol(TVC) - 23):ncol(TVC)], "ClosedRoads")
+
+lasso_model <- glmnet(as.matrix(model_data[, -ncol(model_data)]), model_data$ClosedRoads, alpha = 1)
+ridge_model <- glmnet(as.matrix(model_data[, -ncol(model_data)]), model_data$ClosedRoads, alpha = 0)
+
+plot(lasso_model, xvar = "lambda")
+plot(ridge_model, xvar = "lambda")
+```
